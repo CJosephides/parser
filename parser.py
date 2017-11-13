@@ -16,7 +16,8 @@ class Parser(object):
 
     def add_pattern(self, pattern):
         assert isinstance(pattern, Pattern)
-        self._match_str, parserpatterns.append(pattern)
+        #self._match_str, parserpatterns.append(pattern)
+        self._patterns.append(pattern)
 
     def add_rule(self, rule):
         assert isinstance(rule, Rule)
@@ -25,9 +26,11 @@ class Parser(object):
     def parse(self, sql_str):
         self._sql_str = sql_str
         self._cursor = 0
-        self._stack = [ NextPatternRule(self._sql_str, self) ]
+        self._stack = [ NextPatternRule(self) ]
 
         while self._stack:
+            print("At position: {}".format(self._cursor))
+            print("Stack contents: {}".format(self._stack))
             self._rule = self._stack.pop()
             self._rule()
 
@@ -40,12 +43,37 @@ class Rule(object):
 
 class NextPatternRule(Rule):
 
-    def __call__(self, parser):
-        # logic to find the next pattern
-        # we need to remember where we left the cursor!
-        next_pattern = 'foo'
-        # logic to find the next pattern
-        return next_pattern
+    def __init__(self, parser):
+        self._parser = parser
+
+    def _get_next_pattern(self):
+
+        # Evaluate all patterns.
+        next_pattern = None
+        next_str = ""
+        next_pattern_span = (1000, 1000)  # OBVIOUSLY FIX THIS!
+
+        for pattern in self._parser._patterns:
+            match = pattern.search(self._parser)
+            if match is not None:
+                if match.span()[0] < next_pattern_span[0]:
+                    next_pattern = pattern
+                    next_pattern_span = match.span()
+                    next_str = match.group() 
+                    continue
+                elif match.span()[0] == next_pattern_span[0]:
+                    next_pattern = pattern
+                    next_pattern_span = match.span()
+                    next_str = match.group() 
+                    continue
+
+        return next_pattern, next_str
+
+    def __call__(self):
+
+        next_pattern, match_str = self._get_next_pattern()
+        if next_pattern is not None:
+            next_pattern.rules_to_stack(match_str, self._parser)
 
 
 class AdvanceCursorRule(Rule):
@@ -76,6 +104,15 @@ class PrintLiteralRule(Rule):
         print(self._literal)
 
 
+class PrintDecimalRule(Rule):
+
+    def __init__(self, decimal):
+        self._decimal = decimal
+
+    def __call__(self):
+        print(self._decimal)
+
+
 class Pattern(object):
 
     regex = None
@@ -84,7 +121,8 @@ class Pattern(object):
         raise NotImplementedError
 
     def search(self, parser):
-        return self.regex.search(parser._sql_str)
+        print("Pattern {} is searching in {} (cursor {})".format(self, parser._sql_str[parser._cursor:], parser._cursor))
+        return self.regex.search(parser._sql_str[parser._cursor:])
 
     def rules_to_stack(self, match_str, parser):
         rules = self(match_str, parser)
@@ -99,7 +137,7 @@ class LiteralPattern(Pattern):
     def __call__(self, match_str, parser):
 
         rules = [PrintLiteralRule(literal=match_str),
-                 AdvanceCursorRule(advance=len(match_str), parser),
+                 AdvanceCursorRule(advance=len(match_str), parser=parser),
                  NextPatternRule(parser)]
 
         return rules
@@ -112,7 +150,7 @@ class DecimalPattern(Pattern):
     def __call__(self, match_str, parser):
 
         rules = [ PrintDecimalRule(decimal=match_str),
-                  AdvanceCursorRule(advance=len(match_str), parser),
+                  AdvanceCursorRule(advance=len(match_str), parser=parser),
                   NextPatternRule(parser) ]
 
         return rules
@@ -124,6 +162,6 @@ class TableColumnPattern(Pattern):
 
     def __call__(self, match_str, parser):
         rules = [ PrintTableColumnRule(table_column=match_str),
-                  AdvanceCursorRule(advance=len(match_str), parser),
+                  AdvanceCursorRule(advance=len(match_str), parser=parser),
                   NextPAtternRule(parser) ]
 
